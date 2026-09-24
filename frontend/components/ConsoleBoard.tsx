@@ -197,7 +197,7 @@ export default function ConsoleBoard() {
         </div>
         <div ref={detailAnchor} className="scroll-mt-4 lg:col-span-7">
           {task ? (
-            <TaskDetail task={task} account={account} provider={provider} onTx={setTx} onChanged={refreshAll} />
+            <TaskDetail key={`${task.id}-${task.status}`} task={task} account={account} provider={provider} onTx={setTx} onChanged={refreshAll} />
           ) : (
             <div className="rounded-md border border-dashed border-line bg-card px-5 py-10 text-center">
               <p className="font-sign text-xl font-semibold uppercase tracking-wide">

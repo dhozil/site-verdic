@@ -12,6 +12,9 @@ export function friendlyTransport(error: unknown, fallback: string): string {
     return "Request cancelled in your wallet. No transaction was sent.";
   }
   if (error instanceof Error) {
+    if (/does not match committed hash/i.test(error.message)) {
+      return "The selected photos differ from the submitted evidence. Re-select the exact files used at submit time.";
+    }
     if (/429|rate limit|too many requests/i.test(error.message)) {
       return "The network rate limit is exhausted. Wait a minute, then press Reload List once.";
     }

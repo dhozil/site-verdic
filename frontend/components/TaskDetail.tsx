@@ -36,6 +36,8 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
   const [busy, setBusy] = useState(false);
   const [previewBefore, setPreviewBefore] = useState<string | null>(null);
   const [previewAfter, setPreviewAfter] = useState<string | null>(null);
+  const [matchBefore, setMatchBefore] = useState<boolean | null>(null);
+  const [matchAfter, setMatchAfter] = useState<boolean | null>(null);
   const [linkState, setLinkState] = useState<"idle" | "copied" | "failed">("idle");
   const [refBroken, setRefBroken] = useState(false);
   const beforeRef = useRef<HTMLInputElement>(null);
@@ -132,6 +134,14 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
 
   const resolve = () =>
     run("requesting verification", async (active, user) => {
+      if (matchBefore === false || matchAfter === false) {
+        onTx({
+          message:
+            "The selected files differ from the committed evidence (see the notes under each file). Re-select the exact files used at submit time.",
+          isError: true,
+        });
+        throw new Error("files missing");
+      }
       const files = await selectedBytes();
       if (!files) {
         onTx({
@@ -222,15 +232,44 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
   function trackFile(
     input: HTMLInputElement | null,
     setPreview: React.Dispatch<React.SetStateAction<string | null>>,
+    setMatch: React.Dispatch<React.SetStateAction<boolean | null>>,
+    expectedHash: string,
   ) {
     const file = input?.files?.[0] ?? null;
     setPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return file ? URL.createObjectURL(file) : null;
     });
+    // Pre-check the file against the committed hash so a mismatch is caught
+    // here, not as a failed on-chain transaction.
+    if (!file || !expectedHash) {
+      setMatch(null);
+      return;
+    }
+    setMatch(null);
+    void (async () => {
+      try {
+        const compressed = await compressPhoto(file);
+        const digest = await sha256Hex(compressed.buffer);
+        setMatch(digest.toLowerCase() === expectedHash.toLowerCase());
+      } catch {
+        setMatch(null);
+      }
+    })();
   }
 
-  function fileInputs() {
+  function matchNote(match: boolean | null): React.ReactNode {
+    if (match === null) return null;
+    return match ? (
+      <span className="text-sm font-bold text-ok">Matches the committed evidence.</span>
+    ) : (
+      <span className="text-sm font-bold text-bad">
+        Differs from the committed evidence. Resolving with this file will fail; re-select the exact file used at submit time.
+      </span>
+    );
+  }
+
+  function fileInputs(expectedBefore: string, expectedAfter: string) {
     return (
       <>
         <label className="grid gap-1 font-semibold">
@@ -240,9 +279,10 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             type="file"
             accept="image/png,image/jpeg"
             required
-            onChange={(e) => trackFile(e.currentTarget, setPreviewBefore)}
+            onChange={(e) => trackFile(e.currentTarget, setPreviewBefore, setMatchBefore, expectedBefore)}
             className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
           />
+          {matchNote(matchBefore)}
         </label>
         <label className="grid gap-1 font-semibold">
           After photo
@@ -251,9 +291,10 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             type="file"
             accept="image/png,image/jpeg"
             required
-            onChange={(e) => trackFile(e.currentTarget, setPreviewAfter)}
+            onChange={(e) => trackFile(e.currentTarget, setPreviewAfter, setMatchAfter, expectedAfter)}
             className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
           />
+          {matchNote(matchAfter)}
         </label>
         {previewBefore && previewAfter && (
           <CompareSlider beforeUrl={previewBefore} afterUrl={previewAfter} />
@@ -557,7 +598,7 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             <li>Use good light and fill the frame with the work area.</li>
             <li>Show the finished criteria clearly, not the whole street.</li>
           </ul>
-          {fileInputs()}
+          {fileInputs(task.baseline_hash, "")}
           <button
             type="submit"
             disabled={busy}
@@ -577,7 +618,7 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             Select the exact photo files that were hashed at submit time. The
             contract rejects any bytes that do not match the committed hashes.
           </p>
-          {fileInputs()}
+          {fileInputs(task.before_hash, task.proof_hash)}
         </div>
       )}
 
