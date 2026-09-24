@@ -34,3 +34,4 @@ Verifikasi WAJIB before-after: 2 foto (sebelum + sesudah) lokasi sama, progres t
 - [x] Fix "No account set": client tulis diikat ke provider + alamat dompet terpilih (viem butuh account eksplisit).
 - [x] Rebrand SiteVerdict + pemisahan peran + worker kosong (zero address). Test 3 peran 8/8, demo 2 peran lolos.
 - [x] Alur join (join/approve/reject/cancel), lokasi + foto referensi, wage GEN. Test 8/8 + demo 2 peran lolos. Deploy final: 0x7c1326a0330c44Fb0815b2F9B6A8C3add015fBD1. Push af6d583.
+- [x] Foto selalu JPEG di bawah 800KB (413 nginx), error 413 dipetakan ke pesan ramah.
