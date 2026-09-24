@@ -9,6 +9,8 @@ import typing
 ERROR_EXPECTED = "[EXPECTED]"
 ERROR_LLM = "[LLM_ERROR]"
 
+EMPTY_WORKER = Address("0x0000000000000000000000000000000000000000")
+
 # Status lifecycle (v2, staff-review hardened):
 # OPEN -> SUBMITTED -> CONFIRMED -> APPROVED -> PAID
 #                            \---> REJECTED -> SUBMITTED (appeal, 1x, worker only)
@@ -95,7 +97,7 @@ class SiteVerdict(gl.Contract):
         # NOTE: v1 accounting only. TODO: make payable + real escrow with gl.message.value.
         self.tasks[task_id] = Task(
             creator=gl.message.sender_address,
-            worker=gl.message.sender_address,
+            worker=EMPTY_WORKER,
             description=description,
             requirements=requirements,
             reward_atto=reward_atto,
@@ -171,6 +173,7 @@ class SiteVerdict(gl.Contract):
         if task.status != "SUBMITTED":
             raise gl.vm.UserError(f"{ERROR_EXPECTED} nothing submitted to reject")
         task.status = "OPEN"
+        task.worker = EMPTY_WORKER
         task.proof_hash = ""
         task.before_hash = ""
         self._save(task_id, task)
@@ -183,6 +186,7 @@ class SiteVerdict(gl.Contract):
         if task.status != "SUBMITTED":
             raise gl.vm.UserError(f"{ERROR_EXPECTED} nothing submitted to retract")
         task.status = "OPEN"
+        task.worker = EMPTY_WORKER
         task.proof_hash = ""
         task.before_hash = ""
         self._save(task_id, task)

@@ -103,6 +103,13 @@ export function shortAddr(value: unknown): string {
   return a.length > 12 ? `${a.slice(0, 6)}...${a.slice(-4)}` : a;
 }
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+export function isUnassignedWorker(value: unknown): boolean {
+  const a = addrOf(value);
+  return a === "" || a.toLowerCase() === ZERO_ADDRESS;
+}
+
 export async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", buffer);
   return [...new Uint8Array(digest)]
@@ -125,10 +132,11 @@ export async function readTask(id: string): Promise<TaskView> {
     functionName: "get_task",
     args: [id],
   })) as Record<string, unknown>;
+  const workerAddr = addrOf(raw.worker);
   return {
     id,
     creator: addrOf(raw.creator),
-    worker: addrOf(raw.worker),
+    worker: isUnassignedWorker(workerAddr) ? "" : workerAddr,
     description: String(raw.description ?? ""),
     requirements: String(raw.requirements ?? ""),
     reward_atto: String(raw.reward_atto ?? "0"),

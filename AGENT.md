@@ -32,3 +32,4 @@ Verifikasi WAJIB before-after: 2 foto (sebelum + sesudah) lokasi sama, progres t
 - [x] Struk PAID: jurnal tx localStorage + tombol Download Receipt (data chain + hash/waktu + link explorer, siap print/PDF).
 - [x] Kontrak v2 staff-review hardened (hash binding, dual-confirm, baseline, appeal worker-only + histori, recovery tanpa clock, settlement guards).
 - [x] Fix "No account set": client tulis diikat ke provider + alamat dompet terpilih (viem butuh account eksplisit).
+- [x] Rebrand SiteVerdict + pemisahan peran + worker kosong (zero address). Test 3 peran 8/8, demo 2 peran lolos. Deploy final: 0xc80f0F6999Ce85f64c74Cc6667Fc2C77C4d8E79F.

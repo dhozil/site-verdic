@@ -54,7 +54,8 @@ def test_submit_confirm_flow():
     ).transact()
     assert tx_execution_succeeded(tx)
 
-    # The creator can never take its own job.
+    # No worker assigned at creation: the job must not appear as worked.
+    assert creator.get_task(args=["v2-001"]).call()["worker"] == "0x" + "0" * 40
     tx = creator.submit_proof(args=["v2-001", _sha(after), _sha(before)]).transact()
     assert tx_execution_failed(tx)
 
@@ -93,7 +94,9 @@ def test_recovery_transitions():
     assert tx_execution_failed(tx)
     tx = worker.retract_proof(args=["v2-010"]).transact()
     assert tx_execution_succeeded(tx)
-    assert creator.get_task(args=["v2-010"]).call()["status"] == "OPEN"
+    task = creator.get_task(args=["v2-010"]).call()
+    assert task["status"] == "OPEN"
+    assert task["worker"] == "0x" + "0" * 40
 
     # Creator rejects a submission; stranger cannot.
     worker.submit_proof(args=["v2-010", _sha(after), _sha(before)]).transact()

@@ -15,7 +15,7 @@ from gltest import get_contract_factory
 from gltest.accounts import create_account
 from gltest.assertions import tx_execution_succeeded
 
-DEPLOYED = "0x2Fa0b73B2A61007820947786353480572B3eDB03"
+DEPLOYED = "0xc80f0F6999Ce85f64c74Cc6667Fc2C77C4d8E79F"
 FIXTURES = os.path.join(os.path.dirname(__file__), "..", "fixtures")
 
 
