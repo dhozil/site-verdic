@@ -135,7 +135,7 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
       const files = await selectedBytes();
       if (!files) {
         onTx({
-          message: "Re-select the before and after photos in the proof form.",
+          message: "Select both verification photos above first.",
           isError: true,
         });
         throw new Error("files missing");
@@ -228,6 +228,38 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
       if (prev) URL.revokeObjectURL(prev);
       return file ? URL.createObjectURL(file) : null;
     });
+  }
+
+  function fileInputs() {
+    return (
+      <>
+        <label className="grid gap-1 font-semibold">
+          Before photo
+          <input
+            ref={beforeRef}
+            type="file"
+            accept="image/png,image/jpeg"
+            required
+            onChange={(e) => trackFile(e.currentTarget, setPreviewBefore)}
+            className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
+          />
+        </label>
+        <label className="grid gap-1 font-semibold">
+          After photo
+          <input
+            ref={afterRef}
+            type="file"
+            accept="image/png,image/jpeg"
+            required
+            onChange={(e) => trackFile(e.currentTarget, setPreviewAfter)}
+            className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
+          />
+        </label>
+        {previewBefore && previewAfter && (
+          <CompareSlider beforeUrl={previewBefore} afterUrl={previewAfter} />
+        )}
+      </>
+    );
   }
 
   return (
@@ -503,6 +535,7 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
 
       {showProofForm && (
         <form
+          key={`submit-${task.id}`}
           onSubmit={(e) => {
             e.preventDefault();
             void submitProof();
@@ -524,31 +557,7 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             <li>Use good light and fill the frame with the work area.</li>
             <li>Show the finished criteria clearly, not the whole street.</li>
           </ul>
-          <label className="grid gap-1 font-semibold">
-            Before photo
-            <input
-              ref={beforeRef}
-              type="file"
-              accept="image/png,image/jpeg"
-              required
-              onChange={(e) => trackFile(e.currentTarget, setPreviewBefore)}
-              className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
-            />
-          </label>
-          <label className="grid gap-1 font-semibold">
-            After photo
-            <input
-              ref={afterRef}
-              type="file"
-              accept="image/png,image/jpeg"
-              required
-              onChange={(e) => trackFile(e.currentTarget, setPreviewAfter)}
-              className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
-            />
-          </label>
-          {previewBefore && previewAfter && (
-            <CompareSlider beforeUrl={previewBefore} afterUrl={previewAfter} />
-          )}
+          {fileInputs()}
           <button
             type="submit"
             disabled={busy}
@@ -557,6 +566,19 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             {task.status === "REJECTED" ? "File Appeal" : "Submit Photo Proof"}
           </button>
         </form>
+      )}
+
+      {task.status === "CONFIRMED" && (
+        <div key={`verify-${task.id}`} className="mt-4 grid gap-3 rounded-md border border-line bg-card p-4">
+          <h3 className="font-sign text-lg font-semibold uppercase tracking-wide">
+            Photos for verification
+          </h3>
+          <p className="mt-0">
+            Select the exact photo files that were hashed at submit time. The
+            contract rejects any bytes that do not match the committed hashes.
+          </p>
+          {fileInputs()}
+        </div>
       )}
 
       {(task.status === "OPEN" || task.status === "REJECTED") && isCreator && (
