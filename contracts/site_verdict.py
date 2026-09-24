@@ -11,11 +11,11 @@ ERROR_LLM = "[LLM_ERROR]"
 
 EMPTY_WORKER = Address("0x0000000000000000000000000000000000000000")
 
-# Status lifecycle (v2, staff-review hardened):
-# OPEN -> SUBMITTED -> CONFIRMED -> APPROVED -> PAID
-#                            \---> REJECTED -> SUBMITTED (appeal, 1x, worker only)
-# OPEN/SUBMITTED -> CANCELLED (creator, pre-confirm recovery)
-# SUBMITTED -> OPEN (creator reject_submission / worker retract_proof)
+# Status lifecycle (v3):
+# OPEN -> APPLIED -> ASSIGNED -> SUBMITTED -> CONFIRMED -> APPROVED -> PAID
+#          (join)    (approve)                              \---> REJECTED -> SUBMITTED (appeal, 1x, worker only)
+# APPLIED -> OPEN (creator reject_join / worker cancel_join)
+# OPEN/APPLIED/ASSIGNED/SUBMITTED -> CANCELLED (creator, pre-confirm recovery)
 # REJECTED -> REFUNDED (creator)
 # Terminal: PAID, REFUNDED, CANCELLED.
 
@@ -34,6 +34,8 @@ class Task:
     appeals_used: u256
     before_hash: str
     baseline_hash: str
+    location: str
+    reference_url: str
 
 
 def _parse_verdict(raw: typing.Any) -> dict:
@@ -88,12 +90,25 @@ class SiteVerdict(gl.Contract):
 
     @gl.public.write
     def create_task(
-        self, task_id: str, description: str, requirements: str, reward_atto: u256, baseline_hash: str
+        self,
+        task_id: str,
+        description: str,
+        requirements: str,
+        reward_atto: u256,
+        baseline_hash: str,
+        location: str,
+        reference_url: str,
     ) -> None:
         if not task_id or not description:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} task_id and description required")
+        if not location:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} site location required")
         if task_id in self.tasks:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} task_id already exists")
+        if reference_url and not (
+            reference_url.startswith("http://") or reference_url.startswith("https://")
+        ):
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} reference_url must be http(s)")
         # NOTE: v1 accounting only. TODO: make payable + real escrow with gl.message.value.
         self.tasks[task_id] = Task(
             creator=gl.message.sender_address,
@@ -107,6 +122,8 @@ class SiteVerdict(gl.Contract):
             appeals_used=u256(0),
             before_hash="",
             baseline_hash=baseline_hash,
+            location=location,
+            reference_url=reference_url,
         )
         self.task_order.append(task_id)
 
@@ -136,12 +153,55 @@ class SiteVerdict(gl.Contract):
             return []
 
     @gl.public.write
-    def submit_proof(self, task_id: str, proof_hash: str, before_hash: str) -> None:
+    def join_job(self, task_id: str) -> None:
         task = self._get(task_id)
         if task.status != "OPEN":
-            raise gl.vm.UserError(f"{ERROR_EXPECTED} task not open for proof")
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} job not open for joining")
         if gl.message.sender_address == task.creator:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} creator cannot take own job")
+        task.worker = gl.message.sender_address
+        task.status = "APPLIED"
+        self._save(task_id, task)
+
+    @gl.public.write
+    def approve_worker(self, task_id: str) -> None:
+        task = self._get(task_id)
+        if gl.message.sender_address != task.creator:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} only creator can approve a worker")
+        if task.status != "APPLIED":
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} no application to approve")
+        task.status = "ASSIGNED"
+        self._save(task_id, task)
+
+    @gl.public.write
+    def reject_join(self, task_id: str) -> None:
+        task = self._get(task_id)
+        if gl.message.sender_address != task.creator:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} only creator can reject an application")
+        if task.status != "APPLIED":
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} no application to reject")
+        task.status = "OPEN"
+        task.worker = EMPTY_WORKER
+        self._save(task_id, task)
+
+    @gl.public.write
+    def cancel_join(self, task_id: str) -> None:
+        task = self._get(task_id)
+        if gl.message.sender_address != task.worker:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} only applicant can cancel application")
+        if task.status != "APPLIED":
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} no application to cancel")
+        task.status = "OPEN"
+        task.worker = EMPTY_WORKER
+        self._save(task_id, task)
+
+    @gl.public.write
+    def submit_proof(self, task_id: str, proof_hash: str, before_hash: str) -> None:
+        task = self._get(task_id)
+        if task.status != "ASSIGNED":
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} join and get approved before submitting proof")
+        if gl.message.sender_address != task.worker:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} only assigned worker can submit proof")
         if not proof_hash or not before_hash:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} proof_hash and before_hash required")
         # Split evidence across parties: a creator-attested baseline binds the
@@ -172,8 +232,7 @@ class SiteVerdict(gl.Contract):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} only creator can reject a submission")
         if task.status != "SUBMITTED":
             raise gl.vm.UserError(f"{ERROR_EXPECTED} nothing submitted to reject")
-        task.status = "OPEN"
-        task.worker = EMPTY_WORKER
+        task.status = "ASSIGNED"
         task.proof_hash = ""
         task.before_hash = ""
         self._save(task_id, task)
@@ -185,8 +244,7 @@ class SiteVerdict(gl.Contract):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} only worker can retract proof")
         if task.status != "SUBMITTED":
             raise gl.vm.UserError(f"{ERROR_EXPECTED} nothing submitted to retract")
-        task.status = "OPEN"
-        task.worker = EMPTY_WORKER
+        task.status = "ASSIGNED"
         task.proof_hash = ""
         task.before_hash = ""
         self._save(task_id, task)
@@ -196,7 +254,7 @@ class SiteVerdict(gl.Contract):
         task = self._get(task_id)
         if gl.message.sender_address != task.creator:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} only creator can cancel")
-        if task.status not in ("OPEN", "SUBMITTED"):
+        if task.status not in ("OPEN", "APPLIED", "ASSIGNED", "SUBMITTED"):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} cannot cancel in status " + task.status)
         task.status = "CANCELLED"
         self._save(task_id, task)
@@ -318,6 +376,8 @@ class SiteVerdict(gl.Contract):
             "proof_hash": t.proof_hash,
             "before_hash": t.before_hash,
             "baseline_hash": t.baseline_hash,
+            "location": t.location,
+            "reference_url": t.reference_url,
             "verdict": t.verdict_json,
             "appeals_used": str(t.appeals_used),
             "evidence_history": self._history(task_id),

@@ -1,6 +1,6 @@
-// Alamat kontrak SiteVerdict di studionet (deploy final, worker kosong
-// sampai ada yang submit, diuji 8/8 + demo 2 peran).
+// Alamat kontrak SiteVerdict di studionet (deploy final: alur join,
+// lokasi, foto referensi, wage GEN).
 // Ganti jika kontrak di-deploy ulang.
 export const CONTRACT_ADDRESS =
-  "0xc80f0F6999Ce85f64c74Cc6667Fc2C77C4d8E79F";
+  "0x7c1326a0330c44Fb0815b2F9B6A8C3add015fBD1";
 export const NETWORK_NAME = "studionet";

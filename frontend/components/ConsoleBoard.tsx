@@ -17,10 +17,11 @@ import {
 import { friendlyTransport } from "@/lib/errors";
 
 function summarize(tasks: TaskView[]): BoardStats {
+  const active = new Set(["APPLIED", "ASSIGNED", "SUBMITTED", "CONFIRMED"]);
   return {
     total: tasks.length,
     open: tasks.filter((t) => t.status === "OPEN").length,
-    submitted: tasks.filter((t) => t.status === "SUBMITTED").length,
+    active: tasks.filter((t) => active.has(t.status)).length,
     decided: tasks.filter((t) =>
       t.status === "APPROVED" || t.status === "REJECTED" || t.status === "PAID",
     ).length,

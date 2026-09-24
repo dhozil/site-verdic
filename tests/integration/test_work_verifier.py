@@ -1,9 +1,8 @@
-"""Integration tests for SiteVerdict v2 (staff-review hardened).
+"""Integration tests for SiteVerdict v3 (join flow + location + reference).
 
-Three roles: creator posts, a DIFFERENT worker submits (the creator can never
-take its own job), a stranger attacks. Adversarial paths: auth guards,
-dual-confirm gate, hash binding, baseline binding, one-time settlement,
-recovery transitions, wrong-state guards, appeal cap.
+Four roles: creator posts, a DIFFERENT worker joins and gets approved,
+a stranger attacks. Lifecycle:
+OPEN -> APPLIED -> ASSIGNED -> SUBMITTED -> CONFIRMED -> APPROVED -> PAID.
 
 Run: gltest tests/integration/test_work_verifier.py -v -s --network studionet
 """
@@ -18,6 +17,8 @@ from gltest.accounts import create_account
 from gltest.assertions import tx_execution_succeeded, tx_execution_failed
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "..", "fixtures")
+ZERO = "0x" + "0" * 40
+LOC = "Jl. Merdeka No. 45, Bandung"
 
 
 def _load_images():
@@ -44,77 +45,111 @@ def _as(contract, account=None):
     )
 
 
-def test_submit_confirm_flow():
+def test_join_approve_flow():
     creator = _deploy()
     worker = _as(creator)
+    stranger = _as(creator)
     before, after = _load_images()
 
     tx = creator.create_task(
-        args=["v2-001", "Repaint the wall", "Two coats light blue", 5, _sha(before)]
+        args=["v3-001", "Repaint the wall", "Two coats light blue", 5, _sha(before), LOC, ""]
     ).transact()
     assert tx_execution_succeeded(tx)
+    task = creator.get_task(args=["v3-001"]).call()
+    assert task["worker"] == ZERO
+    assert task["location"] == LOC
 
-    # No worker assigned at creation: the job must not appear as worked.
-    assert creator.get_task(args=["v2-001"]).call()["worker"] == "0x" + "0" * 40
-    tx = creator.submit_proof(args=["v2-001", _sha(after), _sha(before)]).transact()
+    # Invalid reference URL rejected; valid stored.
+    tx = creator.create_task(
+        args=["v3-002", "Tiles", "Even grout", 3, "", LOC, "ftp://x/y.png"]
+    ).transact()
     assert tx_execution_failed(tx)
 
-    # Baseline binding: wrong before hash rejected at submit.
-    tx = worker.submit_proof(args=["v2-001", _sha(after), _sha(b"nope")]).transact()
+    # Creator can never join its own job; stranger join works once.
+    tx = creator.join_job(args=["v3-001"]).transact()
     assert tx_execution_failed(tx)
-
-    tx = worker.submit_proof(args=["v2-001", _sha(after), _sha(before)]).transact()
+    tx = worker.join_job(args=["v3-001"]).transact()
     assert tx_execution_succeeded(tx)
-    assert creator.get_task(args=["v2-001"]).call()["status"] == "SUBMITTED"
-
-    # Resolve blocked before creator confirmation (dual-confirm gate).
-    tx = creator.resolve_task(args=["v2-001", before, after]).transact()
+    assert creator.get_task(args=["v3-001"]).call()["status"] == "APPLIED"
+    tx = stranger.join_job(args=["v3-001"]).transact()
     assert tx_execution_failed(tx)
 
-    # Only the creator can confirm.
-    stranger = _as(creator)
-    tx = stranger.confirm_evidence(args=["v2-001"]).transact()
+    # Submit before approval fails; approve is creator-only.
+    tx = worker.submit_proof(args=["v3-001", _sha(after), _sha(before)]).transact()
     assert tx_execution_failed(tx)
-
-    tx = creator.confirm_evidence(args=["v2-001"]).transact()
+    tx = stranger.approve_worker(args=["v3-001"]).transact()
+    assert tx_execution_failed(tx)
+    tx = creator.approve_worker(args=["v3-001"]).transact()
     assert tx_execution_succeeded(tx)
-    assert creator.get_task(args=["v2-001"]).call()["status"] == "CONFIRMED"
+    assert creator.get_task(args=["v3-001"]).call()["status"] == "ASSIGNED"
+
+    # Baseline binding enforced at submit.
+    tx = worker.submit_proof(args=["v3-001", _sha(after), _sha(b"nope")]).transact()
+    assert tx_execution_failed(tx)
+    tx = worker.submit_proof(args=["v3-001", _sha(after), _sha(before)]).transact()
+    assert tx_execution_succeeded(tx)
+
+    # Resolve still locked before confirmation.
+    tx = creator.resolve_task(args=["v3-001", before, after]).transact()
+    assert tx_execution_failed(tx)
+    tx = stranger.confirm_evidence(args=["v3-001"]).transact()
+    assert tx_execution_failed(tx)
+    tx = creator.confirm_evidence(args=["v3-001"]).transact()
+    assert tx_execution_succeeded(tx)
+    assert creator.get_task(args=["v3-001"]).call()["status"] == "CONFIRMED"
 
 
-def test_recovery_transitions():
+def test_join_recovery():
     creator = _deploy()
     worker = _as(creator)
+    stranger = _as(creator)
     before, after = _load_images()
 
-    # Worker retracts own submission; stranger cannot retract.
-    creator.create_task(args=["v2-010", "Tiles", "Even grout lines", 3, ""]).transact()
-    worker.submit_proof(args=["v2-010", _sha(after), _sha(before)]).transact()
-    stranger = _as(creator)
-    tx = stranger.retract_proof(args=["v2-010"]).transact()
+    creator.create_task(args=["v3-010", "Tiles", "Even grout lines", 3, "", LOC, ""]).transact()
+
+    # Worker cancels own application; stranger cannot.
+    worker.join_job(args=["v3-010"]).transact()
+    tx = stranger.cancel_join(args=["v3-010"]).transact()
     assert tx_execution_failed(tx)
-    tx = worker.retract_proof(args=["v2-010"]).transact()
+    tx = worker.cancel_join(args=["v3-010"]).transact()
     assert tx_execution_succeeded(tx)
-    task = creator.get_task(args=["v2-010"]).call()
+    task = creator.get_task(args=["v3-010"]).call()
     assert task["status"] == "OPEN"
-    assert task["worker"] == "0x" + "0" * 40
+    assert task["worker"] == ZERO
 
-    # Creator rejects a submission; stranger cannot.
-    worker.submit_proof(args=["v2-010", _sha(after), _sha(before)]).transact()
-    tx = stranger.reject_submission(args=["v2-010"]).transact()
+    # Creator rejects an application; stranger cannot.
+    worker.join_job(args=["v3-010"]).transact()
+    tx = stranger.reject_join(args=["v3-010"]).transact()
     assert tx_execution_failed(tx)
-    tx = creator.reject_submission(args=["v2-010"]).transact()
+    tx = creator.reject_join(args=["v3-010"]).transact()
     assert tx_execution_succeeded(tx)
-    assert creator.get_task(args=["v2-010"]).call()["status"] == "OPEN"
+    task = creator.get_task(args=["v3-010"]).call()
+    assert task["status"] == "OPEN"
+    assert task["worker"] == ZERO
 
-    # Creator cancels pre-confirm; stranger cannot cancel.
-    tx = stranger.cancel_task(args=["v2-010"]).transact()
+    # Retract/reject of evidence keeps the assignment (ASSIGNED, worker kept).
+    worker.join_job(args=["v3-010"]).transact()
+    creator.approve_worker(args=["v3-010"]).transact()
+    worker.submit_proof(args=["v3-010", _sha(after), _sha(before)]).transact()
+    tx = worker.retract_proof(args=["v3-010"]).transact()
+    assert tx_execution_succeeded(tx)
+    task = creator.get_task(args=["v3-010"]).call()
+    assert task["status"] == "ASSIGNED"
+    assert task["worker"] != ZERO
+
+    worker.submit_proof(args=["v3-010", _sha(after), _sha(before)]).transact()
+    tx = creator.reject_submission(args=["v3-010"]).transact()
+    assert tx_execution_succeeded(tx)
+    assert creator.get_task(args=["v3-010"]).call()["status"] == "ASSIGNED"
+
+    # Creator cancels pre-confirm from ASSIGNED and SUBMITTED.
+    tx = stranger.cancel_task(args=["v3-010"]).transact()
     assert tx_execution_failed(tx)
-    tx = creator.cancel_task(args=["v2-010"]).transact()
+    worker.submit_proof(args=["v3-010", _sha(after), _sha(before)]).transact()
+    tx = creator.cancel_task(args=["v3-010"]).transact()
     assert tx_execution_succeeded(tx)
-    assert creator.get_task(args=["v2-010"]).call()["status"] == "CANCELLED"
-
-    # Terminal: no submit after cancel.
-    tx = worker.submit_proof(args=["v2-010", _sha(after), _sha(before)]).transact()
+    assert creator.get_task(args=["v3-010"]).call()["status"] == "CANCELLED"
+    tx = worker.submit_proof(args=["v3-010", _sha(after), _sha(before)]).transact()
     assert tx_execution_failed(tx)
 
 
@@ -123,18 +158,17 @@ def test_wrong_state_guards():
     creator = _deploy()
     worker = _as(creator)
     before, after = _load_images()
-    creator.create_task(args=["v2-050", "Paint", "Even coats", 2, ""]).transact()
+    creator.create_task(args=["v3-050", "Paint", "Even coats", 2, "", LOC, ""]).transact()
 
-    # Nothing submitted yet: resolve/confirm/claim/retract/reject/appeal/refund fail.
-    assert tx_execution_failed(creator.resolve_task(args=["v2-050", before, after]).transact())
-    assert tx_execution_failed(creator.confirm_evidence(args=["v2-050"]).transact())
-    assert tx_execution_failed(worker.claim_reward(args=["v2-050"]).transact())
-    assert tx_execution_failed(worker.retract_proof(args=["v2-050"]).transact())
-    assert tx_execution_failed(creator.reject_submission(args=["v2-050"]).transact())
-    assert tx_execution_failed(worker.appeal(args=["v2-050", _sha(after), _sha(before)]).transact())
-    assert tx_execution_failed(creator.refund(args=["v2-050"]).transact())
+    assert tx_execution_failed(creator.resolve_task(args=["v3-050", before, after]).transact())
+    assert tx_execution_failed(creator.confirm_evidence(args=["v3-050"]).transact())
+    assert tx_execution_failed(worker.claim_reward(args=["v3-050"]).transact())
+    assert tx_execution_failed(worker.retract_proof(args=["v3-050"]).transact())
+    assert tx_execution_failed(creator.reject_submission(args=["v3-050"]).transact())
+    assert tx_execution_failed(worker.appeal(args=["v3-050", _sha(after), _sha(before)]).transact())
+    assert tx_execution_failed(creator.refund(args=["v3-050"]).transact())
+    assert tx_execution_failed(creator.approve_worker(args=["v3-050"]).transact())
 
-    # Unknown task id fails on write and view.
     assert tx_execution_failed(worker.submit_proof(args=["nope", "a", "b"]).transact())
     try:
         creator.get_task(args=["nope"]).call()
@@ -143,13 +177,14 @@ def test_wrong_state_guards():
         raised = True
     assert raised
 
-    # Double submit blocked; cancel/retract/reject blocked once CONFIRMED.
-    worker.submit_proof(args=["v2-050", _sha(after), _sha(before)]).transact()
-    assert tx_execution_failed(worker.submit_proof(args=["v2-050", _sha(after), _sha(before)]).transact())
-    creator.confirm_evidence(args=["v2-050"]).transact()
-    assert tx_execution_failed(creator.cancel_task(args=["v2-050"]).transact())
-    assert tx_execution_failed(worker.retract_proof(args=["v2-050"]).transact())
-    assert tx_execution_failed(creator.reject_submission(args=["v2-050"]).transact())
+    worker.join_job(args=["v3-050"]).transact()
+    creator.approve_worker(args=["v3-050"]).transact()
+    worker.submit_proof(args=["v3-050", _sha(after), _sha(before)]).transact()
+    creator.confirm_evidence(args=["v3-050"]).transact()
+    assert tx_execution_failed(creator.cancel_task(args=["v3-050"]).transact())
+    assert tx_execution_failed(worker.retract_proof(args=["v3-050"]).transact())
+    assert tx_execution_failed(creator.reject_submission(args=["v3-050"]).transact())
+    assert tx_execution_failed(worker.join_job(args=["v3-050"]).transact())
 
 
 @pytest.mark.slow
@@ -159,15 +194,16 @@ def test_hash_binding_rejects_substituted_bytes():
     worker = _as(creator)
     before, after = _load_images()
 
-    creator.create_task(args=["v2-020", "Repaint the wall", "Clean blue, white trim", 5, ""]).transact()
-    worker.submit_proof(args=["v2-020", _sha(after), _sha(before)]).transact()
-    creator.confirm_evidence(args=["v2-020"]).transact()
+    creator.create_task(args=["v3-020", "Repaint the wall", "Clean blue, white trim", 5, "", LOC, ""]).transact()
+    worker.join_job(args=["v3-020"]).transact()
+    creator.approve_worker(args=["v3-020"]).transact()
+    worker.submit_proof(args=["v3-020", _sha(after), _sha(before)]).transact()
+    creator.confirm_evidence(args=["v3-020"]).transact()
 
     tampered = b"not the committed photo" + after
-    tx = creator.resolve_task(args=["v2-020", before, tampered]).transact()
+    tx = creator.resolve_task(args=["v3-020", before, tampered]).transact()
     assert tx_execution_failed(tx)
-    # State untouched by the failed resolve.
-    assert creator.get_task(args=["v2-020"]).call()["status"] == "CONFIRMED"
+    assert creator.get_task(args=["v3-020"]).call()["status"] == "CONFIRMED"
 
 
 @pytest.mark.slow
@@ -177,40 +213,40 @@ def test_full_approve_settles_once():
     before, after = _load_images()
 
     creator.create_task(
-        args=["v2-030", "Repaint the living room wall", "Wall painted clean light blue, neat white trim", 5, _sha(before)]
+        args=["v3-030", "Repaint the living room wall", "Wall painted clean light blue, neat white trim", 5, _sha(before), LOC, ""]
     ).transact()
-    worker.submit_proof(args=["v2-030", _sha(after), _sha(before)]).transact()
-    creator.confirm_evidence(args=["v2-030"]).transact()
+    worker.join_job(args=["v3-030"]).transact()
+    creator.approve_worker(args=["v3-030"]).transact()
+    worker.submit_proof(args=["v3-030", _sha(after), _sha(before)]).transact()
+    creator.confirm_evidence(args=["v3-030"]).transact()
 
-    tx = creator.resolve_task(args=["v2-030", before, after]).transact()
+    tx = creator.resolve_task(args=["v3-030", before, after]).transact()
     assert tx_execution_succeeded(tx)
-    task = creator.get_task(args=["v2-030"]).call()
+    task = creator.get_task(args=["v3-030"]).call()
     print("VERDICT:", task["verdict"])
     if task["status"] == "REJECTED":
-        # One appeal retry: vision verdicts can flip run to run.
-        tx = worker.appeal(args=["v2-030", _sha(after), _sha(before)]).transact()
+        tx = worker.appeal(args=["v3-030", _sha(after), _sha(before)]).transact()
         assert tx_execution_succeeded(tx)
-        creator.confirm_evidence(args=["v2-030"]).transact()
-        tx = creator.resolve_task(args=["v2-030", before, after]).transact()
+        creator.confirm_evidence(args=["v3-030"]).transact()
+        tx = creator.resolve_task(args=["v3-030", before, after]).transact()
         assert tx_execution_succeeded(tx)
-        task = creator.get_task(args=["v2-030"]).call()
+        task = creator.get_task(args=["v3-030"]).call()
         print("RETRY:", task["verdict"])
     assert task["status"] == "APPROVED"
     assert task["worker"] != task["creator"]
+    assert task["worker"] != ZERO
     assert len(task["evidence_history"]) == 1
 
-    # Stranger cannot claim; worker claims once; second claim fails.
     stranger = _as(creator)
-    tx = stranger.claim_reward(args=["v2-030"]).transact()
+    tx = stranger.claim_reward(args=["v3-030"]).transact()
     assert tx_execution_failed(tx)
-    tx = worker.claim_reward(args=["v2-030"]).transact()
+    tx = worker.claim_reward(args=["v3-030"]).transact()
     assert tx_execution_succeeded(tx)
-    tx = worker.claim_reward(args=["v2-030"]).transact()
+    tx = worker.claim_reward(args=["v3-030"]).transact()
     assert tx_execution_failed(tx)
-    assert creator.get_task(args=["v2-030"]).call()["status"] == "PAID"
+    assert creator.get_task(args=["v3-030"]).call()["status"] == "PAID"
 
-    # No refund after payout.
-    tx = creator.refund(args=["v2-030"]).transact()
+    tx = creator.refund(args=["v3-030"]).transact()
     assert tx_execution_failed(tx)
 
 
@@ -221,45 +257,40 @@ def test_garbage_pair_rejected_then_worker_only_appeal():
     with open(os.path.join(FIXTURES, "unrelated.png"), "rb") as f:
         unrelated = f.read()
 
-    creator.create_task(args=["v2-040", "Repaint the wall", "Clean light blue paint, neat white trim", 4, ""]).transact()
-    worker.submit_proof(
-        args=["v2-040", _sha(unrelated), _sha(unrelated)]
-    ).transact()
-    creator.confirm_evidence(args=["v2-040"]).transact()
+    creator.create_task(args=["v3-040", "Repaint the wall", "Clean light blue paint, neat white trim", 4, "", LOC, ""]).transact()
+    worker.join_job(args=["v3-040"]).transact()
+    creator.approve_worker(args=["v3-040"]).transact()
+    worker.submit_proof(args=["v3-040", _sha(unrelated), _sha(unrelated)]).transact()
+    creator.confirm_evidence(args=["v3-040"]).transact()
 
-    tx = creator.resolve_task(args=["v2-040", unrelated, unrelated]).transact()
+    tx = creator.resolve_task(args=["v3-040", unrelated, unrelated]).transact()
     assert tx_execution_succeeded(tx)
-    task = creator.get_task(args=["v2-040"]).call()
+    task = creator.get_task(args=["v3-040"]).call()
     print("VERDICT:", task["verdict"])
     assert task["status"] == "REJECTED"
 
-    # Appeal is worker-only and single-use: creator and stranger both fail.
     stranger = _as(creator)
     before, after = _load_images()
-    tx = stranger.appeal(args=["v2-040", _sha(after), _sha(before)]).transact()
+    tx = stranger.appeal(args=["v3-040", _sha(after), _sha(before)]).transact()
     assert tx_execution_failed(tx)
-    tx = creator.appeal(args=["v2-040", _sha(after), _sha(before)]).transact()
+    tx = creator.appeal(args=["v3-040", _sha(after), _sha(before)]).transact()
     assert tx_execution_failed(tx)
-    tx = worker.appeal(args=["v2-040", _sha(after), _sha(before)]).transact()
+    tx = worker.appeal(args=["v3-040", _sha(after), _sha(before)]).transact()
     assert tx_execution_succeeded(tx)
-    task = creator.get_task(args=["v2-040"]).call()
+    task = creator.get_task(args=["v3-040"]).call()
     assert task["status"] == "SUBMITTED"
     assert task["appeals_used"] == "1"
-    # Second appeal attempt fails (wrong status: needs re-confirm + re-resolve).
-    tx = worker.appeal(args=["v2-040", _sha(after), _sha(before)]).transact()
+    tx = worker.appeal(args=["v3-040", _sha(after), _sha(before)]).transact()
     assert tx_execution_failed(tx)
 
-    # Stranger cannot refund a rejected job.
-    tx = stranger.refund(args=["v2-040"]).transact()
+    tx = stranger.refund(args=["v3-040"]).transact()
     assert tx_execution_failed(tx)
 
-    # Appeal recovery: confirm + resolve the real pair -> APPROVED, and
-    # history preserves both rounds.
-    tx = creator.confirm_evidence(args=["v2-040"]).transact()
+    tx = creator.confirm_evidence(args=["v3-040"]).transact()
     assert tx_execution_succeeded(tx)
-    tx = creator.resolve_task(args=["v2-040", before, after]).transact()
+    tx = creator.resolve_task(args=["v3-040", before, after]).transact()
     assert tx_execution_succeeded(tx)
-    task = creator.get_task(args=["v2-040"]).call()
+    task = creator.get_task(args=["v3-040"]).call()
     print("RECOVERED:", task["verdict"])
     assert task["status"] == "APPROVED"
     assert len(task["evidence_history"]) == 2
@@ -273,22 +304,23 @@ def test_creator_refund_after_reject():
     with open(os.path.join(FIXTURES, "unrelated.png"), "rb") as f:
         unrelated = f.read()
 
-    creator.create_task(args=["v2-041", "Fix the roof", "No leaks, sealed tiles", 4, ""]).transact()
-    worker.submit_proof(args=["v2-041", _sha(unrelated), _sha(unrelated)]).transact()
-    creator.confirm_evidence(args=["v2-041"]).transact()
-    tx = creator.resolve_task(args=["v2-041", unrelated, unrelated]).transact()
+    creator.create_task(args=["v3-041", "Fix the roof", "No leaks, sealed tiles", 4, "", LOC, ""]).transact()
+    worker.join_job(args=["v3-041"]).transact()
+    creator.approve_worker(args=["v3-041"]).transact()
+    worker.submit_proof(args=["v3-041", _sha(unrelated), _sha(unrelated)]).transact()
+    creator.confirm_evidence(args=["v3-041"]).transact()
+    tx = creator.resolve_task(args=["v3-041", unrelated, unrelated]).transact()
     assert tx_execution_succeeded(tx)
-    assert creator.get_task(args=["v2-041"]).call()["status"] == "REJECTED"
+    assert creator.get_task(args=["v3-041"]).call()["status"] == "REJECTED"
 
     stranger = _as(creator)
-    tx = stranger.refund(args=["v2-041"]).transact()
+    tx = stranger.refund(args=["v3-041"]).transact()
     assert tx_execution_failed(tx)
-    tx = creator.refund(args=["v2-041"]).transact()
+    tx = creator.refund(args=["v3-041"]).transact()
     assert tx_execution_succeeded(tx)
-    assert creator.get_task(args=["v2-041"]).call()["status"] == "REFUNDED"
-    # Terminal: no appeal after refund.
+    assert creator.get_task(args=["v3-041"]).call()["status"] == "REFUNDED"
     before, after = _load_images()
-    tx = worker.appeal(args=["v2-041", _sha(after), _sha(before)]).transact()
+    tx = worker.appeal(args=["v3-041", _sha(after), _sha(before)]).transact()
     assert tx_execution_failed(tx)
 
 
@@ -300,20 +332,21 @@ def test_appeal_cap_enforced_after_second_reject():
     with open(os.path.join(FIXTURES, "unrelated.png"), "rb") as f:
         unrelated = f.read()
 
-    creator.create_task(args=["v2-042", "Repaint the wall", "Clean light blue paint", 2, ""]).transact()
-    worker.submit_proof(args=["v2-042", _sha(unrelated), _sha(unrelated)]).transact()
-    creator.confirm_evidence(args=["v2-042"]).transact()
-    tx = creator.resolve_task(args=["v2-042", unrelated, unrelated]).transact()
+    creator.create_task(args=["v3-042", "Repaint the wall", "Clean light blue paint", 2, "", LOC, ""]).transact()
+    worker.join_job(args=["v3-042"]).transact()
+    creator.approve_worker(args=["v3-042"]).transact()
+    worker.submit_proof(args=["v3-042", _sha(unrelated), _sha(unrelated)]).transact()
+    creator.confirm_evidence(args=["v3-042"]).transact()
+    tx = creator.resolve_task(args=["v3-042", unrelated, unrelated]).transact()
     assert tx_execution_succeeded(tx)
-    assert creator.get_task(args=["v2-042"]).call()["status"] == "REJECTED"
+    assert creator.get_task(args=["v3-042"]).call()["status"] == "REJECTED"
 
-    worker.appeal(args=["v2-042", _sha(unrelated), _sha(unrelated)]).transact()
-    creator.confirm_evidence(args=["v2-042"]).transact()
-    tx = creator.resolve_task(args=["v2-042", unrelated, unrelated]).transact()
+    worker.appeal(args=["v3-042", _sha(unrelated), _sha(unrelated)]).transact()
+    creator.confirm_evidence(args=["v3-042"]).transact()
+    tx = creator.resolve_task(args=["v3-042", unrelated, unrelated]).transact()
     assert tx_execution_succeeded(tx)
-    task = creator.get_task(args=["v2-042"]).call()
+    task = creator.get_task(args=["v3-042"]).call()
     assert task["status"] == "REJECTED"
     assert task["appeals_used"] == "1"
-    # Status allows an appeal, but the single appeal is spent: cap branch.
-    tx = worker.appeal(args=["v2-042", _sha(unrelated), _sha(unrelated)]).transact()
+    tx = worker.appeal(args=["v3-042", _sha(unrelated), _sha(unrelated)]).transact()
     assert tx_execution_failed(tx)

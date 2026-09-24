@@ -48,9 +48,20 @@ export interface TaskView {
   proof_hash: string;
   before_hash: string;
   baseline_hash: string;
+  location: string;
+  reference_url: string;
   verdict: string;
   appeals_used: string;
   evidence_history: EvidenceRecord[];
+}
+
+export function formatGen(atto: string): string {
+  try {
+    const gen = Number(BigInt(atto)) / 1e18;
+    return Number.isInteger(gen) ? String(gen) : gen.toFixed(1);
+  } catch {
+    return atto;
+  }
 }
 
 export interface ConsensusSummary {
@@ -144,6 +155,8 @@ export async function readTask(id: string): Promise<TaskView> {
     proof_hash: String(raw.proof_hash ?? ""),
     before_hash: String(raw.before_hash ?? ""),
     baseline_hash: String(raw.baseline_hash ?? ""),
+    location: String(raw.location ?? ""),
+    reference_url: String(raw.reference_url ?? ""),
     verdict: String(raw.verdict ?? ""),
     appeals_used: String(raw.appeals_used ?? "0"),
     evidence_history: Array.isArray(raw.evidence_history)

@@ -4,9 +4,8 @@ import { useRef, useState } from "react";
 import CompareSlider from "@/components/CompareSlider";
 import StatusPipeline from "@/components/StatusPipeline";
 import { openReceipt } from "@/components/Receipt";
-import { compressPhoto } from "@/lib/images";
-import { friendlyTransport } from "@/lib/errors";
 import {
+  formatGen,
   readTask,
   sendWrite,
   sha256Hex,
@@ -14,6 +13,8 @@ import {
   type TaskView,
   type TxUpdate,
 } from "@/lib/genlayer";
+import { compressPhoto } from "@/lib/images";
+import { friendlyTransport } from "@/lib/errors";
 import type { WalletProvider } from "@/lib/wallets";
 
 interface Props {
@@ -27,15 +28,16 @@ interface Props {
 function statusClass(status: string): string {
   if (status === "APPROVED" || status === "PAID") return "text-ok";
   if (status === "REJECTED" || status === "REFUNDED" || status === "CANCELLED") return "text-bad";
-  if (status === "SUBMITTED" || status === "CONFIRMED") return "text-brand-deep";
+  if (["SUBMITTED", "CONFIRMED", "APPLIED", "ASSIGNED"].includes(status)) return "text-brand-deep";
   return "text-ink";
 }
 
 export default function TaskDetail({ task, account, provider, onTx, onChanged }: Props) {
   const [busy, setBusy] = useState(false);
-  const [linkState, setLinkState] = useState<"idle" | "copied" | "failed">("idle");
   const [previewBefore, setPreviewBefore] = useState<string | null>(null);
   const [previewAfter, setPreviewAfter] = useState<string | null>(null);
+  const [linkState, setLinkState] = useState<"idle" | "copied" | "failed">("idle");
+  const [refBroken, setRefBroken] = useState(false);
   const beforeRef = useRef<HTMLInputElement>(null);
   const afterRef = useRef<HTMLInputElement>(null);
 
@@ -100,6 +102,21 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
     }
   }
 
+  const join = () =>
+    run("joining this job", (active, user) => sendWrite(active, user, "join_job", [task.id], onTx));
+  const approveWorker = () =>
+    run("approving the worker", (active, user) =>
+      sendWrite(active, user, "approve_worker", [task.id], onTx),
+    );
+  const rejectJoin = () =>
+    run("rejecting the application", (active, user) =>
+      sendWrite(active, user, "reject_join", [task.id], onTx),
+    );
+  const cancelJoin = () =>
+    run("cancelling the application", (active, user) =>
+      sendWrite(active, user, "cancel_join", [task.id], onTx),
+    );
+
   const submitProof = () =>
     run("submitting proof", async (active, user) => {
       const files = await selectedBytes();
@@ -124,8 +141,6 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
         throw new Error("files missing");
       }
       await sendWrite(active, user, "resolve_task", [task.id, files.before, files.after], onTx);
-      // Finalized does not guarantee agreement: validators may have disagreed
-      // while the leader executed fine. Confirm the state actually moved.
       const fresh = await readTask(task.id);
       if (fresh.status === "CONFIRMED") {
         onTx({
@@ -160,14 +175,23 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
   }
 
   const showProofForm =
-    (task.status === "OPEN" || task.status === "REJECTED") && !isCreator;
+    ((task.status === "ASSIGNED" || task.status === "REJECTED") && isWorker) ||
+    (task.status === "REJECTED" && !account);
 
   function nextStep(): string | null {
     switch (task.status) {
       case "OPEN":
         return isCreator
-          ? "Next: wait for a worker to submit the photo pair below."
-          : "Next: submit the before and after photos of the same spot.";
+          ? "Next: wait for a worker to press Join Job."
+          : "Next: press Join Job, then wait for the client to approve you.";
+      case "APPLIED":
+        if (isCreator) return "Next: review the applicant, then Approve Worker or Reject Join.";
+        if (isWorker) return "Next: nothing. The client must approve your application.";
+        return "Next: the client must approve the pending application.";
+      case "ASSIGNED":
+        return isWorker
+          ? "Next: do the work, then submit the before and after photos below."
+          : "Next: the assigned worker submits photo proof.";
       case "SUBMITTED":
         if (isCreator) return "Next: check the submitted hashes, then Confirm Evidence or Reject Submission.";
         if (isWorker) return "Next: nothing. The client must confirm your evidence before verification.";
@@ -213,6 +237,7 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
         <h2 id="h-detail" className="font-sign break-all text-3xl font-semibold uppercase tracking-wide">
           {task.id}
         </h2>
+        <p className="mt-1 text-paper/85">{task.location}</p>
         <StatusPipeline status={task.status} />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
@@ -250,23 +275,49 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
         <dd>{task.description}</dd>
         <dt className="font-bold">Acceptance criteria</dt>
         <dd>{task.requirements}</dd>
-        <dt className="font-bold">Wage (atto GEN)</dt>
-        <dd className="break-all">{task.reward_atto}</dd>
+        <dt className="font-bold">Site location</dt>
+        <dd>{task.location}</dd>
+        <dt className="font-bold">Wage</dt>
+        <dd>
+          {formatGen(task.reward_atto)} GEN{" "}
+          <span className="text-sm text-muted">({task.reward_atto} atto)</span>
+        </dd>
         <dt className="font-bold">Status</dt>
         <dd className={`font-bold ${statusClass(task.status)}`}>{task.status}</dd>
         <dt className="font-bold">Client</dt>
         <dd>{shortAddr(task.creator)}</dd>
         <dt className="font-bold">Worker</dt>
-        <dd>{task.worker ? shortAddr(task.worker) : "none yet"}</dd>
+        <dd>{task.worker ? shortAddr(task.worker) : "awaiting applications"}</dd>
         <dt className="font-bold">Baseline hash</dt>
         <dd className="break-all">{task.baseline_hash || "none committed"}</dd>
         <dt className="font-bold">Proof hash</dt>
         <dd className="break-all">{task.proof_hash || "none submitted"}</dd>
         <dt className="font-bold">Appeals used</dt>
-        <dd>
-          {task.appeals_used} of 1
-        </dd>
+        <dd>{task.appeals_used} of 1</dd>
       </dl>
+
+      {task.reference_url && !refBroken && (
+        <div className="mt-4">
+          <h3 className="font-sign text-lg font-semibold uppercase tracking-wide">
+            Site reference photo
+          </h3>
+          <p className="mt-0 text-sm text-muted">
+            Provided by the client for orientation. Display only, not verified evidence.
+          </p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={task.reference_url}
+            alt={`Reference photo of the work site for ${task.id}`}
+            onError={() => setRefBroken(true)}
+            className="mt-2 max-h-80 w-full rounded-md border border-line object-cover"
+          />
+        </div>
+      )}
+      {task.reference_url && refBroken && (
+        <p className="mt-4 rounded-md border border-line bg-card px-4 py-3 text-sm text-muted">
+          The reference photo link no longer loads.
+        </p>
+      )}
 
       {task.status === "SUBMITTED" && (
         <p className="mt-3 rounded-md border border-line bg-card px-4 py-3">
@@ -325,6 +376,90 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
       )}
 
       <div className="mt-4 flex flex-wrap gap-2.5">
+        {task.status === "OPEN" && account && !isCreator && (
+          <button
+            type="button"
+            onClick={join}
+            disabled={busy}
+            className="min-h-[44px] rounded-md border border-ink bg-ink px-4 font-semibold text-paper disabled:cursor-wait disabled:opacity-55"
+          >
+            Join Job
+          </button>
+        )}
+        {task.status === "APPLIED" && isCreator && (
+          <>
+            <button
+              type="button"
+              onClick={approveWorker}
+              disabled={busy}
+              className="min-h-[44px] rounded-md border border-ink bg-ink px-4 font-semibold text-paper disabled:cursor-wait disabled:opacity-55"
+            >
+              Approve Worker
+            </button>
+            <button
+              type="button"
+              onClick={rejectJoin}
+              disabled={busy}
+              className="min-h-[44px] rounded-md border border-ink bg-transparent px-4 font-semibold disabled:cursor-wait disabled:opacity-55"
+            >
+              Reject Application
+            </button>
+          </>
+        )}
+        {task.status === "APPLIED" && isWorker && (
+          <button
+            type="button"
+            onClick={cancelJoin}
+            disabled={busy}
+            className="min-h-[44px] rounded-md border border-ink bg-transparent px-4 font-semibold disabled:cursor-wait disabled:opacity-55"
+          >
+            Withdraw Application
+          </button>
+        )}
+        {task.status === "CONFIRMED" && (
+          <button
+            type="button"
+            onClick={resolve}
+            disabled={busy}
+            className="min-h-[44px] rounded-md border border-ink bg-ink px-4 font-semibold text-paper disabled:cursor-wait disabled:opacity-55"
+          >
+            Request AI Verification
+          </button>
+        )}
+        {task.status === "APPROVED" && isWorker && (
+          <button
+            type="button"
+            onClick={claim}
+            disabled={busy}
+            className="min-h-[44px] rounded-md border border-ink bg-ink px-4 font-semibold text-paper disabled:cursor-wait disabled:opacity-55"
+          >
+            Claim Wage
+          </button>
+        )}
+        {(task.status === "OPEN" ||
+          task.status === "APPLIED" ||
+          task.status === "ASSIGNED" ||
+          task.status === "SUBMITTED") &&
+          isCreator && (
+            <button
+              type="button"
+              onClick={cancel}
+              disabled={busy}
+              className="min-h-[44px] rounded-md border border-bad bg-transparent px-4 font-semibold text-bad disabled:cursor-wait disabled:opacity-55"
+            >
+              Cancel Job
+            </button>
+          )}
+        {task.status === "REJECTED" && isCreator && (
+          <button
+            type="button"
+            onClick={refund}
+            disabled={busy}
+            className="min-h-[44px] rounded-md border border-ink bg-transparent px-4 font-semibold disabled:cursor-wait disabled:opacity-55"
+          >
+            Refund Job
+          </button>
+        )}
         {task.status === "SUBMITTED" && isCreator && (
           <>
             <button
@@ -355,26 +490,6 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             Retract Proof
           </button>
         )}
-        {task.status === "CONFIRMED" && (
-          <button
-            type="button"
-            onClick={resolve}
-            disabled={busy}
-            className="min-h-[44px] rounded-md border border-ink bg-ink px-4 font-semibold text-paper disabled:cursor-wait disabled:opacity-55"
-          >
-            Request AI Verification
-          </button>
-        )}
-        {task.status === "APPROVED" && isWorker && (
-          <button
-            type="button"
-            onClick={claim}
-            disabled={busy}
-            className="min-h-[44px] rounded-md border border-ink bg-ink px-4 font-semibold text-paper disabled:cursor-wait disabled:opacity-55"
-          >
-            Claim Wage
-          </button>
-        )}
         {task.status === "PAID" && (
           <button
             type="button"
@@ -384,34 +499,7 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             Download Receipt
           </button>
         )}
-        {(task.status === "OPEN" || task.status === "SUBMITTED") && isCreator && (
-          <button
-            type="button"
-            onClick={cancel}
-            disabled={busy}
-            className="min-h-[44px] rounded-md border border-bad bg-transparent px-4 font-semibold text-bad disabled:cursor-wait disabled:opacity-55"
-          >
-            Cancel Job
-          </button>
-        )}
-        {task.status === "REJECTED" && isCreator && (
-          <button
-            type="button"
-            onClick={refund}
-            disabled={busy}
-            className="min-h-[44px] rounded-md border border-ink bg-transparent px-4 font-semibold disabled:cursor-wait disabled:opacity-55"
-          >
-            Refund Job
-          </button>
-        )}
       </div>
-
-      {(task.status === "OPEN" || task.status === "REJECTED") && isCreator && (
-        <p className="mt-4 rounded-md border border-line bg-card px-4 py-3">
-          You posted this job. A different wallet must submit the proof; the
-          contract rejects self-submission.
-        </p>
-      )}
 
       {showProofForm && (
         <form
@@ -469,6 +557,13 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             {task.status === "REJECTED" ? "File Appeal" : "Submit Photo Proof"}
           </button>
         </form>
+      )}
+
+      {(task.status === "OPEN" || task.status === "REJECTED") && isCreator && (
+        <p className="mt-4 rounded-md border border-line bg-card px-4 py-3">
+          You posted this job. A different wallet must join and submit the proof;
+          the contract rejects self-submission.
+        </p>
       )}
     </section>
   );

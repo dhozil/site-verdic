@@ -1,6 +1,6 @@
 "use client";
 
-import { shortAddr, type TaskView } from "@/lib/genlayer";
+import { formatGen, shortAddr, type TaskView } from "@/lib/genlayer";
 
 interface Props {
   tasks: TaskView[];
@@ -16,16 +16,9 @@ function chip(status: string): string {
   if (status === "APPROVED" || status === "PAID") return "bg-ok text-paper";
   if (status === "REJECTED" || status === "REFUNDED" || status === "CANCELLED")
     return "bg-bad text-paper";
-  if (status === "SUBMITTED" || status === "CONFIRMED") return "bg-brand text-ink";
+  if (status === "SUBMITTED" || status === "CONFIRMED" || status === "APPLIED" || status === "ASSIGNED")
+    return "bg-brand text-ink";
   return "bg-ink text-paper";
-}
-
-function rewardGen(atto: string): string {
-  try {
-    return (Number(BigInt(atto)) / 1e18).toString();
-  } catch {
-    return atto;
-  }
 }
 
 export default function TaskList({ tasks, selectedId, state, onRefresh, onLookup, onOpen, loading }: Props) {
@@ -91,7 +84,7 @@ export default function TaskList({ tasks, selectedId, state, onRefresh, onLookup
             <p className="mt-0 line-clamp-2">{t.description}</p>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm text-muted">
-                Wage {rewardGen(t.reward_atto)} GEN
+                Wage {formatGen(t.reward_atto)} GEN
                 {t.worker ? `, worker ${shortAddr(t.worker)}` : ""}
               </span>
               <button

@@ -32,8 +32,11 @@ flowchart LR
     D -->|Rejected| F[One appeal or refund]
 ```
 
-1. The client posts a work order: description, acceptance criteria, wage,
-   and optionally a baseline photo hash of the current state.
+1. The client posts a work order: description, acceptance criteria, site
+   location, wage, and optionally a baseline photo hash plus a reference
+   photo link.
+2. A worker presses Join Job; the client approves the application.
+   Self-joining is reverted on-chain.
 2. The worker submits a **before and an after photo**. Both files are hashed
    (SHA-256, after a 1280px client-side downscale) and committed on-chain.
 3. The client confirms the submission. Resolution stays locked before that,
@@ -71,11 +74,11 @@ confidence 98 and rejected an unrelated pair at 99.
 ## Live deployment
 
 - Contract (studionet, chain 61999):
-  `0xc80f0F6999Ce85f64c74Cc6667Fc2C77C4d8E79F`
-- [Inspect the contract and its transactions](https://explorer-studio.genlayer.com/address/0xc80f0F6999Ce85f64c74Cc6667Fc2C77C4d8E79F)
-- Demo jobs on record: `demo-paint-02` (PAID, 1 round) and `demo-roof-02`
+  `0x7c1326a0330c44Fb0815b2F9B6A8C3add015fBD1`
+- [Inspect the contract and its transactions](https://explorer-studio.genlayer.com/address/0x7c1326a0330c44Fb0815b2F9B6A8C3add015fBD1)
+- Demo jobs on record: `demo-paint-03` (PAID, 1 round) and `demo-roof-03`
   (PAID after appeal, 2 rounds). Open them in `/console` or via
-  `/console?job=demo-paint-02`.
+  `/console?job=demo-paint-03`.
 
 ## Run it
 
@@ -103,7 +106,10 @@ cd frontend && npm install && npm run dev
 
 | Method | Caller | Result |
 |---|---|---|
-| `create_task(id, description, requirements, reward_atto, baseline_hash)` | client | OPEN |
+| `create_task(id, description, requirements, reward_atto, baseline_hash, location, reference_url)` | client | OPEN |
+| `join_job(id)` | a different wallet | APPLIED |
+| `approve_worker(id)` / `reject_join(id)` | client | ASSIGNED / back to OPEN |
+| `cancel_join(id)` | applicant | back to OPEN |
 | `submit_proof(id, proof_hash, before_hash)` | a different wallet | SUBMITTED |
 | `confirm_evidence(id)` | client | CONFIRMED |
 | `reject_submission(id)` / `retract_proof(id)` | client / worker | back to OPEN |

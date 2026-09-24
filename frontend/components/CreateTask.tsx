@@ -31,7 +31,10 @@ export default function CreateTask({ account, provider, onTx, onCreated, onJobEx
     if (!String(data.get("task_id")).trim()) missing.push("job code");
     if (!String(data.get("description")).trim()) missing.push("work description");
     if (!String(data.get("requirements")).trim()) missing.push("acceptance criteria");
+    if (!String(data.get("location")).trim()) missing.push("site location");
     if (data.get("reward") === "" || Number.isNaN(Number(data.get("reward")))) missing.push("wage");
+    const refUrl = String(data.get("reference_url") ?? "").trim();
+    if (refUrl && !/^https?:\/\//i.test(refUrl)) missing.push("reference photo URL (http(s))");
     if (missing.length > 0) {
       onTx({ message: `Fill these first: ${missing.join(", ")}.`, isError: true });
       return;
@@ -63,6 +66,8 @@ export default function CreateTask({ account, provider, onTx, onCreated, onJobEx
           String(data.get("requirements")).trim(),
           rewardAtto,
           baselineHash,
+          String(data.get("location")).trim(),
+          String(data.get("reference_url") ?? "").trim(),
         ],
         onTx,
       );
@@ -123,6 +128,31 @@ export default function CreateTask({ account, provider, onTx, onCreated, onJobEx
               placeholder="e.g. Two coats of light blue, clean white trim"
               className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
             />
+          </label>
+          <label className="grid gap-1 font-semibold">
+            Site location
+            <input
+              name="location"
+              required
+              maxLength={200}
+              autoComplete="off"
+              placeholder="e.g. Jl. Merdeka No. 45, Bandung"
+              className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
+            />
+          </label>
+          <label className="grid gap-1 font-semibold">
+            Reference photo URL (optional)
+            <input
+              name="reference_url"
+              type="url"
+              maxLength={500}
+              autoComplete="off"
+              placeholder="https://... (what the site looks like)"
+              className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
+            />
+            <span className="text-sm font-normal text-muted">
+              Shown to workers. Display only, not verified evidence.
+            </span>
           </label>
           <label className="grid gap-1 font-semibold">
             Baseline before photo (optional)

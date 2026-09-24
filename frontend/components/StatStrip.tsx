@@ -3,7 +3,7 @@
 export interface BoardStats {
   total: number;
   open: number;
-  submitted: number;
+  active: number;
   decided: number;
 }
 
@@ -12,7 +12,7 @@ export default function StatStrip({ stats, loading }: { stats: BoardStats | null
     ? [
         { label: "Total jobs", value: stats.total },
         { label: "Open", value: stats.open },
-        { label: "Awaiting AI verdict", value: stats.submitted },
+        { label: "In progress", value: stats.active },
         { label: "Decided", value: stats.decided },
       ]
     : [];

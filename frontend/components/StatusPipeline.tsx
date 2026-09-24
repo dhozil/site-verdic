@@ -2,23 +2,27 @@
 
 // Where a job sits in its lifecycle, drawn from its real status.
 // Terminal states (paid, refunded, cancelled) close the pipe.
-const PIPE = ["Posted", "Evidence", "Confirmed", "Decided", "Settled"] as const;
+const PIPE = ["Posted", "Applied", "Assigned", "Evidence", "Confirmed", "Decided", "Settled"] as const;
 
 function stageIndex(status: string): number {
   switch (status) {
     case "OPEN":
       return 0;
-    case "SUBMITTED":
+    case "APPLIED":
       return 1;
-    case "CONFIRMED":
+    case "ASSIGNED":
       return 2;
+    case "SUBMITTED":
+      return 3;
+    case "CONFIRMED":
+      return 4;
     case "APPROVED":
     case "REJECTED":
-      return 3;
+      return 5;
     case "PAID":
     case "REFUNDED":
     case "CANCELLED":
-      return 4;
+      return 6;
     default:
       return 0;
   }
@@ -27,7 +31,7 @@ function stageIndex(status: string): number {
 export default function StatusPipeline({ status }: { status: string }) {
   const at = stageIndex(status);
   return (
-    <ol aria-label={`Job stage: ${PIPE[at]} of 5`} className="mt-3 flex flex-wrap gap-1.5">
+    <ol aria-label={`Job stage: ${PIPE[at]} of 7`} className="mt-3 flex flex-wrap gap-1.5">
       {PIPE.map((step, i) => (
         <li
           key={step}
