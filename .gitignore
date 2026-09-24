@@ -1,0 +1,13 @@
+# Python / GenLayer test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.gltest_cache/
+artifacts/
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

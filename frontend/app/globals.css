@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  --color-paper: #faf6ee;
+  --color-card: #ffffff;
+  --color-ink: #22201b;
+  --color-muted: #6b6558;
+  --color-line: #d8d0be;
+  --color-brand: #d99400;
+  --color-brand-deep: #7a5b00;
+  --color-ok: #1e7a3c;
+  --color-bad: #b3261e;
+  --font-sign: "Barlow Condensed", "Arial Narrow", sans-serif;
+}
+
+/* Motif identitas: marka chevron proyek. Dipakai sebagai garis pembatas
+   tipis di momen kunci saja (pita kepala, penanda kartu), bukan latar. */
+.hazard {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--color-brand) 0 14px,
+    var(--color-ink) 14px 28px
+  );
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+/* Semua tombol berfungsi menunjukkan pointer; yang nonaktif ikut kelas
+   disabled masing-masing (cursor-wait). */
+button:not(:disabled) {
+  cursor: pointer;
+}
