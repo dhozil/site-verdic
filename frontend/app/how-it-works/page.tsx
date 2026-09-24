@@ -3,7 +3,7 @@ import SiteShell from "@/components/SiteShell";
 
 export const metadata = {
   title: "How it works: SiteVerdict",
-  description: "The four-move procedure from posting a renovation job to payout, plus answers.",
+  description: "The five-stage procedure from posting a renovation job to payout, plus answers.",
 };
 
 const STEPS = [
@@ -11,26 +11,31 @@ const STEPS = [
     n: "01",
     title: "Post the job",
     body: "In the console, fill the work order form: a job code, what needs doing, the exact acceptance criteria, the site location, an optional reference photo link and baseline photo, plus the wage in GEN. The client address is recorded as the job owner. Connect MetaMask or Rabby first; the trial network charges no gas.",
+    methods: ["create_task"],
   },
   {
     n: "02",
     title: "Join, then get approved",
     body: "A worker presses Join Job on an open listing. Nothing is assigned yet: the client reviews the applicant and presses Approve Worker, or rejects the application. The client can never join its own job; the contract reverts self-submission.",
+    methods: ["join_job", "approve_worker", "reject_join", "cancel_join"],
   },
   {
     n: "03",
     title: "Submit, then confirm the evidence",
     body: "The approved worker photographs the same spot before and after the work and submits both files. The browser hashes each file with SHA-256 and stores the hashes on-chain. If the client committed a baseline photo at posting time, the before photo must hash to it. The client then confirms the submission, which unlocks judgment. Either side can back out before confirmation: the worker retracts, the client rejects or cancels.",
+    methods: ["submit_proof", "confirm_evidence", "retract_proof", "reject_submission", "cancel_task"],
   },
   {
     n: "04",
     title: "Validators inspect and agree",
     body: "Anyone presses Request AI Verification. The contract first checks both photos against the committed hashes, so substituted images fail before any AI runs. A leader validator inspects the pair against the criteria and returns approve or reject with a confidence score. Each remaining validator re-runs the inspection and accepts only if its own decision matches. Expect about a minute.",
+    methods: ["resolve_task"],
   },
   {
     n: "05",
     title: "Money moves on the verdict",
     body: "Approved jobs let the worker address claim the wage. Rejected jobs allow exactly one appeal with a new photo pair. Clients can withdraw jobs that are still open or rejected. Every step is a signed transaction with a hash you can copy.",
+    methods: ["claim_reward", "appeal", "refund"],
   },
 ];
 
@@ -53,7 +58,15 @@ const FAQ = [
   },
   {
     q: "Can I take my own job?",
-    a: "No. The contract rejects proof submitted by the client address, so poster and worker are always two different wallets. To demo both sides yourself, connect a second wallet or browser profile.",
+    a: "No. There is no way to assign yourself: the Join button is hidden for the client, and the contract reverts creator self-submission. To demo both sides yourself, connect a second wallet or browser profile.",
+  },
+  {
+    q: "What if nobody joins my job?",
+    a: "The job waits in OPEN. You can share its link (Copy job link in the details) with a worker, or cancel it yourself at any time before confirmation.",
+  },
+  {
+    q: "What is the reference photo for?",
+    a: "Orientation only. The client can attach a link showing the site so workers know what they sign up for. Validators never see it; only the hashed before-and-after pair counts as evidence.",
   },
   {
     q: "Can the client change the terms mid-job?",
@@ -69,8 +82,8 @@ export default function HowItWorksPage() {
           How verification works
         </h1>
         <p className="mt-3 max-w-2xl text-lg">
-          Six moves, each a signed on-chain transaction. No accounts, no office,
-          no waiting room.
+          Five stages, sixteen contract methods, each step a signed on-chain
+          transaction. No accounts, no office, no waiting room.
         </p>
 
         <ol className="mt-8 grid gap-0 border-t border-line">
@@ -82,6 +95,13 @@ export default function HowItWorksPage() {
               <div>
                 <h2 className="font-sign text-2xl font-semibold uppercase tracking-wide">{s.title}</h2>
                 <p className="mt-2 max-w-2xl">{s.body}</p>
+                <ul className="mt-3 flex flex-wrap gap-1.5" aria-label={`Contract methods in stage ${s.n}`}>
+                  {s.methods.map((m) => (
+                    <li key={m}>
+                      <code className="rounded bg-paper px-2 py-0.5 text-sm font-bold">{m}</code>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </li>
           ))}

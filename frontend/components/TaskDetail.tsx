@@ -376,7 +376,7 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
       )}
 
       <div className="mt-4 flex flex-wrap gap-2.5">
-        {task.status === "OPEN" && account && !isCreator && (
+        {task.status === "OPEN" && !isCreator && (
           <button
             type="button"
             onClick={join}
