@@ -1,65 +1,81 @@
-# SiteVerdict
+<div align="center">
+  <img src="frontend/app/icon.svg" width="96" alt="SiteVerdict mark: amber chevron on charcoal">
+  <h1>SiteVerdict</h1>
+  <p><strong>Renovation work, settled by photo evidence.</strong></p>
+  <p>
+    <img src="https://img.shields.io/badge/contract-studionet_61999-CA9700?style=flat-square" alt="Contract network: studionet">
+    <img src="https://img.shields.io/badge/tests-8_of_8_passing-1E7A3C?style=flat-square" alt="8 of 8 integration tests passing">
+    <img src="https://img.shields.io/badge/consensus-leader_plus_validators-22201B?style=flat-square" alt="Leader plus validator consensus">
+    <img src="https://img.shields.io/badge/app-Next.js_16-22201B?style=flat-square" alt="Next.js 16 app">
+  </p>
+  <p>
+    <a href="#run-it">Run it</a> ·
+    <a href="#the-loop">How it works</a> ·
+    <a href="#contract-api">Contract API</a> ·
+    <a href="#live-deployment">Live deployment</a>
+  </p>
+</div>
 
-**Renovation work, settled by photo evidence.**
-
-A client posts a renovation job. A worker proves completion with
-before-and-after photos. Independent GenLayer AI validators inspect the pair
-and settle the verdict on-chain. No adjuster, no waiting room.
-
-> Multi-modal contracting: verifying completion of physical tasks with
-> cryptographically signed proofs.
+> Multi-modal contracting on GenLayer: verifying completion of physical
+> renovation tasks with cryptographically signed photo proofs.
 
 ---
 
 ## The loop
 
-```
-Client posts job (+ optional baseline photo hash)
-        |
-Worker submits before + after photos (SHA-256 committed)
-        |
-Client confirms the evidence
-        |
-Validators re-run the inspection and must agree
-        |
-Approved -> worker claims -> PAID + printable receipt
-Rejected -> one appeal or client refund
+```mermaid
+flowchart LR
+    A[Client posts job] --> B[Worker submits photo pair]
+    B --> C[Client confirms evidence]
+    C --> D[Validators agree]
+    D -->|Approved| E[Worker claims]
+    D -->|Rejected| F[One appeal or refund]
 ```
 
-## Completion receipt
+1. The client posts a work order: description, acceptance criteria, wage,
+   and optionally a baseline photo hash of the current state.
+2. The worker submits a **before and an after photo**. Both files are hashed
+   (SHA-256, after a 1280px client-side downscale) and committed on-chain.
+3. The client confirms the submission. Resolution stays locked before that,
+   and the client can never take its own job.
+4. Anyone triggers `resolve_task` with the photo bytes. The contract first
+   re-hashes both photos against the committed hashes, then validators run
+   the same vision inspection independently and must agree on approve/reject
+   (confidence within 15 points). Reasoning text is display-only.
+5. Approved: the worker claims (status PAID) and downloads a printable
+   completion receipt. Rejected: one worker-only appeal, or the client
+   refunds. Pre-confirm recovery: retract, reject, or cancel.
 
-Every PAID job offers a **Download Receipt** button: company header,
-job details, parties, the AI verdict with confidence and reasoning,
-per-round evidence history, and a timeline where each step links to its
-explorer transaction. Times come from chain blocks (device time is only a
-labeled fallback). The transaction journal lives in the browser; verdicts
-and hashes always come from the contract.
+## Proof, not promises
 
-## Why it holds up
-
-- **Hash-bound evidence.** Both photos are hashed in the browser after a
-  1280px downscale. `resolve_task` re-hashes the judged bytes on-chain, so
-  substituted photos fail before any AI runs.
-- **Split parties.** The client can attest a baseline; the contract rejects
-  creator self-submission, so poster and worker are always two wallets.
-- **Dual confirmation.** Resolution stays locked until the client confirms
-  the submitted evidence.
-- **Real consensus.** Leader proposes, every validator re-runs the same
-  vision inspection. Decision must match, confidence within 15 points.
-  Reasoning text is display-only and never drives state.
-- **Appeal with memory.** One worker-only appeal; every round is preserved
-  in on-chain evidence history.
-- **Recovery without a clock.** Retract, reject, or cancel pre-confirmation.
-  No state locks permanently.
-
-## Stack
-
-| Layer | Tech |
+| Before | After |
 |---|---|
-| Contract | Python intelligent contract, GenLayer GenVM |
-| Tests | `gltest` on studionet, full leader + validator consensus |
-| App | Next.js 16, TypeScript, Tailwind v4, genlayer-js 1.1.8 |
-| Wallet | EIP-6963 picker (MetaMask, Rabby) |
+| ![Before: gray primer wall](frontend/public/samples/before.png) | ![After: blue topcoat, white trim](frontend/public/samples/after.png) |
+
+These are the actual sample photos from the contract test suite. Drag the
+same pair in the app's comparison slider. Validators approved this pair at
+confidence 98 and rejected an unrelated pair at 99.
+
+## Why the verdict holds up
+
+| Guarantee | Mechanism |
+|---|---|
+| Hash-bound evidence | `resolve_task` re-hashes judged bytes on-chain |
+| Split parties | Creator self-submission reverted; baseline binds the before photo |
+| Dual confirmation | `CONFIRMED` state gates every resolution |
+| Real consensus | Leader proposes, validators re-run and compare decisions only |
+| Appeal with memory | One worker-only appeal; every round preserved in history |
+| No silent failure | App re-reads state after finality and reports disagreement honestly |
+| Recovery without a clock | Retract, reject, or cancel pre-confirmation |
+
+## Live deployment
+
+- Contract (studionet, chain 61999):
+  `0x2Fa0b73B2A61007820947786353480572B3eDB03`
+- [Inspect the contract and its 14+ transactions](https://explorer-studio.genlayer.com/address/0x2Fa0b73B2A61007820947786353480572B3eDB03)
+- Demo jobs on record: `demo-paint-02` (PAID, 1 round) and `demo-roof-02`
+  (PAID after appeal, 2 rounds). Open them in `/console` or via
+  `/console?job=demo-paint-02`.
 
 ## Run it
 
@@ -67,12 +83,14 @@ and hashes always come from the contract.
 # Contract checks
 genvm-lint check contracts/site_verdict.py
 gltest tests/integration/ -v -s --network studionet
+```
 
+```bash
 # App
 cd frontend && npm install && npm run dev
 ```
 
-## Deploy the app (Vercel)
+### Deploy the app (Vercel)
 
 1. Push this repo to GitHub.
 2. Vercel: Add New, Project, import the repo.
@@ -80,11 +98,6 @@ cd frontend && npm install && npm run dev
    Build: `npm run build`. No environment variables needed.
 4. Open `/console`, connect MetaMask or Rabby, switch to the GenLayer
    Studio network when asked.
-
-Deployed contract (studionet): `0x2Fa0b73B2A61007820947786353480572B3eDB03`
-
-Verify it yourself in the [Studio explorer](https://explorer-studio.genlayer.com/address/0x2Fa0b73B2A61007820947786353480572B3eDB03):
-every verdict, appeal, and settlement above is a finalized on-chain transaction.
 
 ## Contract API
 
@@ -101,12 +114,18 @@ every verdict, appeal, and settlement above is a finalized on-chain transaction.
 | `refund(id)` | client, REJECTED only | REFUNDED |
 | `get_task(id)` / `list_tasks()` | anyone | read |
 
+## Completion receipt
+
+Every PAID job offers **Download Receipt**: company header, job details,
+parties, the AI verdict with confidence and reasoning, per-round evidence
+history, and a timeline where each step links to its explorer transaction.
+Step times come from chain blocks (device time is only a labeled fallback).
+
 ## Test report
 
 8 integration tests on studionet with real consensus, plus 2 live demo
-lifecycles on the deployed contract: approve at confidence 98-100, reject
-at 95-100, appeal recovery with 2-round history, rotation recovering a
-failed leader. Wrong-state guards cover all 12 methods. See
+lifecycles on the deployed contract. Wrong-state guards cover all 12
+methods across three roles (creator, worker, stranger). See
 `tests/integration/`.
 
 ## Honest limitations
