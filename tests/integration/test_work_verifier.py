@@ -182,9 +182,16 @@ def test_wrong_state_guards():
     worker.submit_proof(args=["v3-050", _sha(after), _sha(before)]).transact()
     creator.confirm_evidence(args=["v3-050"]).transact()
     assert tx_execution_failed(creator.cancel_task(args=["v3-050"]).transact())
-    assert tx_execution_failed(worker.retract_proof(args=["v3-050"]).transact())
-    assert tx_execution_failed(creator.reject_submission(args=["v3-050"]).transact())
     assert tx_execution_failed(worker.join_job(args=["v3-050"]).transact())
+    # Anti-deadlock: evidence can still be pulled after confirmation.
+    tx = worker.retract_proof(args=["v3-050"]).transact()
+    assert tx_execution_succeeded(tx)
+    assert creator.get_task(args=["v3-050"]).call()["status"] == "ASSIGNED"
+    worker.submit_proof(args=["v3-050", _sha(after), _sha(before)]).transact()
+    creator.confirm_evidence(args=["v3-050"]).transact()
+    tx = creator.reject_submission(args=["v3-050"]).transact()
+    assert tx_execution_succeeded(tx)
+    assert creator.get_task(args=["v3-050"]).call()["status"] == "ASSIGNED"
 
 
 @pytest.mark.slow

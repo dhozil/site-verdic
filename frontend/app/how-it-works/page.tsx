@@ -22,7 +22,7 @@ const STEPS = [
   {
     n: "03",
     title: "Submit, then confirm the evidence",
-    body: "The approved worker photographs the same spot before and after the work and submits both files. The browser hashes each file with SHA-256 and stores the hashes on-chain. If the client committed a baseline photo at posting time, the before photo must hash to it. The client then confirms the submission, which unlocks judgment. Either side can back out before confirmation: the worker retracts, the client rejects or cancels.",
+    body: "The approved worker photographs the same spot before and after the work and submits both files. The browser hashes each file with SHA-256 and stores the hashes on-chain. If the client committed a baseline photo at posting time, the before photo must hash to it. The client then confirms the submission, which unlocks judgment. Either side can still back out before resolution: the worker retracts, the client rejects the submission.",
     methods: ["submit_proof", "confirm_evidence", "retract_proof", "reject_submission", "cancel_task"],
   },
   {

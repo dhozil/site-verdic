@@ -74,8 +74,8 @@ confidence 98 and rejected an unrelated pair at 99.
 ## Live deployment
 
 - Contract (studionet, chain 61999):
-  `0x7c1326a0330c44Fb0815b2F9B6A8C3add015fBD1`
-- [Inspect the contract and its transactions](https://explorer-studio.genlayer.com/address/0x7c1326a0330c44Fb0815b2F9B6A8C3add015fBD1)
+  `0x5602646E58A4b34B328eA60B5d7b0bd975bd6c71`
+- [Inspect the contract and its transactions](https://explorer-studio.genlayer.com/address/0x5602646E58A4b34B328eA60B5d7b0bd975bd6c71)
 - Demo jobs on record: `demo-paint-03` (PAID, 1 round) and `demo-roof-03`
   (PAID after appeal, 2 rounds). Open them in `/console` or via
   `/console?job=demo-paint-03`.

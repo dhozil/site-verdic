@@ -230,7 +230,7 @@ class SiteVerdict(gl.Contract):
         task = self._get(task_id)
         if gl.message.sender_address != task.creator:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} only creator can reject a submission")
-        if task.status != "SUBMITTED":
+        if task.status not in ("SUBMITTED", "CONFIRMED"):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} nothing submitted to reject")
         task.status = "ASSIGNED"
         task.proof_hash = ""
@@ -242,7 +242,7 @@ class SiteVerdict(gl.Contract):
         task = self._get(task_id)
         if gl.message.sender_address != task.worker:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} only worker can retract proof")
-        if task.status != "SUBMITTED":
+        if task.status not in ("SUBMITTED", "CONFIRMED"):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} nothing submitted to retract")
         task.status = "ASSIGNED"
         task.proof_hash = ""

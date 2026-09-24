@@ -553,7 +553,17 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             </button>
           </>
         )}
-        {task.status === "SUBMITTED" && isWorker && (
+        {task.status === "CONFIRMED" && isCreator && (
+          <button
+            type="button"
+            onClick={rejectSubmission}
+            disabled={busy}
+            className="min-h-[44px] rounded-md border border-ink bg-transparent px-4 font-semibold disabled:cursor-wait disabled:opacity-55"
+          >
+            Reject Submission
+          </button>
+        )}
+        {(task.status === "SUBMITTED" || task.status === "CONFIRMED") && isWorker && (
           <button
             type="button"
             onClick={retract}
