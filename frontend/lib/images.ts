@@ -1,11 +1,10 @@
 "use client";
 
-// Downscale photos before hashing and sending. Phone photos (3-5 MB) make
-// consensus transactions slow and heavy, and the Studio endpoint rejects
-// bodies above ~1 MB (HTTP 413). Every photo is re-encoded as JPEG and kept
-// under 800 KB through quality and size fallbacks. The hash is computed
-// AFTER compression, so the committed hash always matches the exact bytes
-// the validators judge.
+// Photos are prepared before hashing and sending. Small files pass through
+// byte-identical so every wallet hashes the same bytes; oversized photos are
+// re-encoded as JPEG under 800 KB (Studio rejects bodies above ~1 MB with
+// HTTP 413). The hash is always computed AFTER preparation, so the committed
+// hash matches the exact bytes the validators judge.
 
 const MAX_SIDE = 1280;
 const MAX_BYTES = 800_000;
@@ -35,6 +34,39 @@ async function encode(
 }
 
 export async function compressPhoto(file: File): Promise<{ bytes: Uint8Array; buffer: ArrayBuffer }> {
+  const prepared = await preparePhoto(file);
+  return { bytes: prepared.bytes, buffer: prepared.buffer };
+}
+
+/**
+ * Small files pass through byte-identical so every wallet and the repo
+ * fixtures hash to the same value on any browser. Only oversized photos
+ * are re-encoded (always JPEG, under 800 KB).
+ */
+export async function preparePhoto(file: File): Promise<{
+  bytes: Uint8Array;
+  buffer: ArrayBuffer;
+  keptOriginal: boolean;
+}> {
+  if (file.size > 0 && file.size <= MAX_BYTES) {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const smallEnough =
+        bitmap.width <= MAX_SIDE && bitmap.height <= MAX_SIDE;
+      bitmap.close();
+      if (smallEnough) {
+        const buffer = await file.arrayBuffer();
+        return { bytes: new Uint8Array(buffer), buffer, keptOriginal: true };
+      }
+    } catch {
+      /* fall through to re-encode */
+    }
+  }
+  const compressed = await compressLarge(file);
+  return { ...compressed, keptOriginal: false };
+}
+
+async function compressLarge(file: File): Promise<{ bytes: Uint8Array; buffer: ArrayBuffer }> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(file);

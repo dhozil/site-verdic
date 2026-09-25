@@ -5,6 +5,14 @@ import CompareSlider from "@/components/CompareSlider";
 import StatusPipeline from "@/components/StatusPipeline";
 import { openReceipt } from "@/components/Receipt";
 import {
+  buildPack,
+  downloadPack,
+  packBytes,
+  packPreviewUrls,
+  parsePack,
+} from "@/lib/evidence-pack";
+import { CONTRACT_ADDRESS } from "@/lib/config";
+import {
   formatGen,
   readTask,
   sendWrite,
@@ -38,6 +46,8 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
   const [previewAfter, setPreviewAfter] = useState<string | null>(null);
   const [matchBefore, setMatchBefore] = useState<boolean | null>(null);
   const [matchAfter, setMatchAfter] = useState<boolean | null>(null);
+  const [packInfo, setPackInfo] = useState<string | null>(null);
+  const [packData, setPackData] = useState<{ before: Uint8Array; after: Uint8Array } | null>(null);
   const [linkState, setLinkState] = useState<"idle" | "copied" | "failed">("idle");
   const [refBroken, setRefBroken] = useState(false);
   const beforeRef = useRef<HTMLInputElement>(null);
@@ -54,6 +64,16 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
     beforeBuf: ArrayBuffer;
     afterBuf: ArrayBuffer;
   } | null> {
+    if (packData) {
+      const beforeBuf = packData.before.buffer.slice(0) as ArrayBuffer;
+      const afterBuf = packData.after.buffer.slice(0) as ArrayBuffer;
+      return {
+        before: new Uint8Array(beforeBuf),
+        after: new Uint8Array(afterBuf),
+        beforeBuf,
+        afterBuf,
+      };
+    }
     const fb = beforeRef.current?.files?.[0];
     const fa = afterRef.current?.files?.[0];
     if (!fb || !fa) {
@@ -269,6 +289,85 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
     );
   }
 
+  async function exportPack() {
+    const files = await selectedBytes();
+    if (!files) return;
+    try {
+      const beforeHash = await sha256Hex(files.beforeBuf);
+      const afterHash = await sha256Hex(files.afterBuf);
+      downloadPack(
+        buildPack({
+          taskId: task.id,
+          contract: CONTRACT_ADDRESS,
+          beforeHash,
+          afterHash,
+          before: files.before,
+          after: files.after,
+        }),
+      );
+      setPackInfo("Evidence pack downloaded. Send the JSON file to the other wallet.");
+    } catch (err) {
+      onTx({
+        message: err instanceof Error ? err.message : "Could not build the pack.",
+        isError: true,
+      });
+    }
+  }
+
+  async function importPackFile(file: File | undefined) {
+    setPackInfo(null);
+    if (!file) return;
+    try {
+      const pack = parsePack(await file.text());
+      if (pack.taskId !== task.id) {
+        onTx({
+          message: `That pack belongs to job ${pack.taskId}, not this one.`,
+          isError: true,
+        });
+        return;
+      }
+      if (pack.contract.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) {
+        onTx({ message: "That pack targets a different contract.", isError: true });
+        return;
+      }
+      const { before, after } = packBytes(pack);
+      const beforeBuf = before.buffer.slice(0) as ArrayBuffer;
+      const afterBuf = after.buffer.slice(0) as ArrayBuffer;
+      const beforeHash = await sha256Hex(beforeBuf);
+      const afterHash = await sha256Hex(afterBuf);
+      if (
+        beforeHash.toLowerCase() !== pack.beforeHash.toLowerCase() ||
+        afterHash.toLowerCase() !== pack.afterHash.toLowerCase()
+      ) {
+        onTx({ message: "This pack is corrupted: its files do not match its hashes.", isError: true });
+        return;
+      }
+      const urls = packPreviewUrls(pack);
+      setPreviewBefore((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return urls.beforeUrl;
+      });
+      setPreviewAfter((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return urls.afterUrl;
+      });
+      setPackData({ before, after });
+      const committedBefore = task.before_hash || task.baseline_hash;
+      setMatchBefore(
+        committedBefore ? beforeHash.toLowerCase() === committedBefore.toLowerCase() : null,
+      );
+      setMatchAfter(
+        task.proof_hash ? afterHash.toLowerCase() === task.proof_hash.toLowerCase() : null,
+      );
+      setPackInfo("Pack loaded. The photos below are the exact submitted bytes.");
+    } catch (err) {
+      onTx({
+        message: err instanceof Error ? err.message : "Could not read that pack file.",
+        isError: true,
+      });
+    }
+  }
+
   function fileInputs(expectedBefore: string, expectedAfter: string) {
     return (
       <>
@@ -393,10 +492,36 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
       )}
 
       {task.status === "SUBMITTED" && (
-        <p className="mt-3 rounded-md border border-line bg-card px-4 py-3">
-          Evidence submitted and hash-committed. Resolution unlocks after the
-          client confirms the evidence{isCreator ? "; use the buttons below." : "."}
-        </p>
+        <div className="mt-3 rounded-md border border-line bg-card px-4 py-3">
+          <p className="mt-0">
+            Evidence submitted and hash-committed. Resolution unlocks after the
+            client confirms the evidence{isCreator ? "." : "."}
+          </p>
+          {isCreator && (
+            <>
+              <label className="mt-2 grid gap-1 font-semibold">
+                Review the worker&apos;s evidence pack
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={(e) => {
+                    void importPackFile(e.currentTarget.files?.[0]);
+                    e.currentTarget.value = "";
+                  }}
+                  className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
+                />
+              </label>
+              {packInfo && (
+                <p role="status" className="mt-1 text-sm text-muted">
+                  {packInfo}
+                </p>
+              )}
+              {previewBefore && previewAfter && (
+                <CompareSlider beforeUrl={previewBefore} afterUrl={previewAfter} />
+              )}
+            </>
+          )}
+        </div>
       )}
 
       {verdict && (
@@ -599,7 +724,8 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
           </h3>
           <p className="mt-0">
             Pick photos of the same spot: the condition before and after the work.
-            Photos are downscaled to 1280px in your browser before hashing.
+            Large photos are compressed in your browser; small files stay
+            byte-identical so every wallet hashes the same bytes.
             {task.baseline_hash &&
               " The before photo must hash to the client baseline."}
           </p>
@@ -609,6 +735,19 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
             <li>Show the finished criteria clearly, not the whole street.</li>
           </ul>
           {fileInputs(task.baseline_hash, "")}
+          <button
+            type="button"
+            onClick={() => void exportPack()}
+            disabled={busy}
+            className="min-h-[44px] rounded-md border border-ink bg-transparent px-4 font-semibold disabled:cursor-wait disabled:opacity-55"
+          >
+            Download Evidence Pack
+          </button>
+          {packInfo && (
+            <p role="status" className="text-sm text-muted">
+              {packInfo}
+            </p>
+          )}
           <button
             type="submit"
             disabled={busy}
@@ -627,7 +766,25 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
           <p className="mt-0">
             Select the exact photo files that were hashed at submit time. The
             contract rejects any bytes that do not match the committed hashes.
+            Alternatively, import the worker&apos;s evidence pack.
           </p>
+          <label className="grid gap-1 font-semibold">
+            Import evidence pack (JSON)
+            <input
+              type="file"
+              accept="application/json,.json"
+              onChange={(e) => {
+                void importPackFile(e.currentTarget.files?.[0]);
+                e.currentTarget.value = "";
+              }}
+              className="min-h-[44px] rounded-md border border-line bg-card px-3 font-normal"
+            />
+          </label>
+          {packInfo && (
+            <p role="status" className="text-sm text-muted">
+              {packInfo}
+            </p>
+          )}
           {fileInputs(task.before_hash, task.proof_hash)}
         </div>
       )}

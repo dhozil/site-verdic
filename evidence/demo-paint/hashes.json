@@ -1,0 +1,5 @@
+{
+  "before_sha256": "036368f13463fd491d3af3daf42ec255d0eef7188e2e79fde59476c504f4c9d4",
+  "after_sha256": "17ed21f7e906f016acc1f307ac1abd2159e058361587fa448c12d084637b6659",
+  "note": "Exact bytes. Any wallet submitting these files commits these hashes."
+}
