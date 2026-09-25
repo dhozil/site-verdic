@@ -36,3 +36,4 @@ Verifikasi WAJIB before-after: 2 foto (sebelum + sesudah) lokasi sama, progres t
 - [x] Alur join (join/approve/reject/cancel), lokasi + foto referensi, wage GEN. Test 8/8 + demo 2 peran lolos.
 - [x] Anti-deadlock: retract/reject bisa dari CONFIRMED. Deploy final: 0x5602646E58A4b34B328eA60B5d7b0bd975bd6c71. Push 8c0db5c.
 - [x] Foto selalu JPEG di bawah 800KB (413 nginx), error 413 dipetakan ke pesan ramah.
+- [x] Evidence pack steward request: ekspor/impor byte persis antar wallet, passthrough hash file kecil, bundle kanonis evidence/demo-paint + alur replay dua wallet. Push d351c0c.
