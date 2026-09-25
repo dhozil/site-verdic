@@ -256,6 +256,9 @@ export default function TaskDetail({ task, account, provider, onTx, onChanged }:
     expectedHash: string,
   ) {
     const file = input?.files?.[0] ?? null;
+    // Manual picks override any imported pack.
+    setPackData(null);
+    setPackInfo(null);
     setPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return file ? URL.createObjectURL(file) : null;
